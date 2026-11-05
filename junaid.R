@@ -5,36 +5,7 @@
 ## =====================================================================
 suppressPackageStartupMessages({ library(robustbase); library(MASS) })
 
-## ---------------------------------------------------------------- data
-gen_data <- function(n, p, rho = 0.95, err = "t3", sigma2 = 1,
-                     contam = "bad10") {
-  Z <- matrix(rnorm(n * (p + 1)), n, p + 1)
-  X <- sqrt(1 - rho^2) * Z[, 1:p, drop = FALSE] + rho * Z[, p + 1]
-  ev <- eigen(crossprod(X), symmetric = TRUE)
-  beta <- ev$vectors[, 1]; beta <- beta / sqrt(sum(beta^2))
-  sig <- sqrt(sigma2)
-  e <- switch(err,
-    normal  = rnorm(n, 0, sig),
-    t3      = sig * rt(n, 3) / sqrt(3),
-    t5      = sig * rt(n, 5) / sqrt(5 / 3),
-    laplace = sig * (rexp(n) - rexp(n)) / sqrt(2), stop("unknown err"))
-  y <- as.vector(X %*% beta) + e
-  m <- switch(contam, none = 0L,
-              vert5 = , bad5  = max(1L, round(0.05 * n)),
-              vert10 = , bad10 = max(1L, round(0.10 * n)),
-              vert20 = , bad20 = max(1L, round(0.20 * n)),
-              good10 = max(1L, round(0.10 * n)))
-  if (m > 0L) {
-    id <- seq_len(m)
-    if (grepl("^vert", contam)) y[id] <- y[id] + 10 * sig
-    else {
-      pc1 <- ev$vectors[, 1]; rng <- diff(range(X %*% pc1))
-      X[id, ] <- X[id, ] + matrix(10 * rng * pc1, m, p, byrow = TRUE)
-      if (grepl("^bad", contam)) y[id] <- rnorm(m, 0, sig) + 10 * sig
-      else y[id] <- as.vector(X[id, , drop = FALSE] %*% beta) + rnorm(m, 0, sig)
-    }
-  }
-  list(X = X, y = y, beta = beta)
+
 }
 
 ## ------------------------------------------------- the ATLAS loss family
@@ -163,21 +134,6 @@ fit_atlas <- function(X, y, parts = FALSE) {
                  calib = t4 - t3, gcv = t5 - t4))
 }
 
-FITS <- list(OLS = fit_ols, Ridge_HK = fit_ridge_hk, Ridge_GCV = fit_ridge_gcv,
-             M_Huber = fit_m_huber, M_Bisq = fit_m_bisq, MM = fit_mm,
-             RRM_Huber = fit_rrm_huber, RRM_Bisq = fit_rrm_bisq, RRMM = fit_rrmm,
-             GM_Ridge = fit_gm_ridge, ATLAS = function(X, y) fit_atlas(X, y))
-
-## =====================================================================
-## 1. per-estimator wall clock, batched past the clock tick
-## =====================================================================
-time_one <- function(f, X, y, min_sec = 0.30) {
-  B <- 1L
-  repeat {
-    t <- system.time(for (i in seq_len(B)) f(X, y))[["elapsed"]]
-    if (t >= min_sec || B >= 4096L) return(t / B)
-    B <- B * 4L
-  }
 }
 bench2 <- function(n, p, reps = 10L) {
   out <- setNames(numeric(length(FITS)), names(FITS))
